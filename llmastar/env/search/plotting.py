@@ -29,8 +29,8 @@ class Plotting:
         if path:
             self.plot_path(path)
         plt.savefig(filepath)
-        if show:
-            plt.show()
+        #if show:
+        #   plt.show()
         plt.close()
         
 

@@ -1,0 +1,1 @@
+env_id,start,goal,astar_ops,astar_storage,astar_length,llm_ops,llm_storage,llm_length,op_ratio,storage_ratio,length_ratio,is_valid,status,error
