@@ -1,0 +1,5 @@
+Method,Model,Prompt,OR(%),SR(%),RL(%),VPR(%),wpts(%),cases_in_table
+A*,-,-,100,100,100,100,-,17
+LLM-A*,gpt,standard,35.55,54.64,101.44,100.00,76.5,17
+LLM-A*,gpt,cot,38.04,56.42,101.61,100.00,70.6,17
+LLM-A*,gpt,repe,42.53,60.37,101.06,100.00,82.4,17
