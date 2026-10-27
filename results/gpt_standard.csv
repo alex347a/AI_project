@@ -1,1 +1,3 @@
-env_id,start,goal,astar_ops,astar_storage,astar_length,llm_ops,llm_storage,llm_length,op_ratio,storage_ratio,length_ratio,is_valid,status,error
+env_id,start,goal,astar_ops,astar_storage,astar_length,llm_ops,llm_storage,llm_length,op_ratio,storage_ratio,length_ratio,llm_waypoints,is_valid,status,error
+0,"[5, 5]","[20, 20]",468,450,42.72792206135786,284,298,42.72792206135786,0.6068,0.6622,1.0000,2,True,ok,
+0,"[39, 22]","[3, 14]",343,411,40.14213562373095,48,149,41.31370849898476,0.1399,0.3625,1.0292,2,True,ok,
