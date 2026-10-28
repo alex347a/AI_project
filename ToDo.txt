@@ -1,0 +1,6 @@
+Read Introduction to Artificial Intelligence (Fall 2026) Paper Writing Guidelines
+
+Read the ÚFAL at MultiLexNorm 2021: Improving Multilingual Lexical Normalization by Fine-tuning ByT5
+
+Write down any questions so we can ask for the next class.
+
