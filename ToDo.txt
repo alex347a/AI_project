@@ -4,3 +4,9 @@ Read the ÚFAL at MultiLexNorm 2021: Improving Multilingual Lexical Normalizatio
 
 Write down any questions so we can ask for the next class.
 
+Try to understand the overleaf template.
+
+Questions:
+What exactly is improving the model? Time, space?
+
+Do we need to reproduce the LLM part of the table or just the LLMA* part, and what about the dynamic w part?
