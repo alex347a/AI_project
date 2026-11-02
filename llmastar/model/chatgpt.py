@@ -2,12 +2,9 @@ import os
 import httpx
 from groq import Groq
 
-# Place your Groq API key here
-GROQ_API_KEY = "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"
-
 class ChatGPT:
     def __init__(self, method, sysprompt, example):
-        api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY") or GROQ_API_KEY
+        api_key = os.getenv("GROQ_API_KEY") or os.getenv("OPENAI_API_KEY")
         
         # Bypass local network SSL interception if present
         http_client = httpx.Client(verify=False)
