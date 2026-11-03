@@ -1,0 +1,7 @@
+Config,Run,OR(%),SR(%),RL(%),VPR(%),wpts(%),cases_compared
+gpt:standard,gpt-oss (Groq),37.49,58.05,101.56,100.00,84.6,52
+gpt:standard,Gemini,49.44,66.65,101.57,100.00,82.7,52
+gpt:cot,gpt-oss (Groq),37.16,57.33,101.32,100.00,84.6,52
+gpt:cot,Gemini,49.42,65.24,101.87,100.00,84.6,52
+gpt:repe,gpt-oss (Groq),43.27,61.45,101.36,100.00,86.5,52
+gpt:repe,Gemini,39.83,59.27,101.76,100.00,80.8,52
