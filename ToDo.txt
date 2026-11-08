@@ -12,3 +12,5 @@ What exactly is improving the model? Time, space?
 Do we need to reproduce the LLM part of the table or just the LLMA* part, and what about the dynamic w part?
 
 Should we include any parts we tried which did NOT improve the model?
+
+Get an image of map 10 to see if it is difficult for the report.
