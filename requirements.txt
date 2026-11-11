@@ -1,9 +1,7 @@
-setuptools~=68.2.2
-openai==0.27.2
-inquirer~=3.2.4
-shapely
-matplotlib
+openai>=1.0.0
+httpx
 numpy
-transformers
-torch
+matplotlib
 shapely
+inquirer~=3.2.4
+python-dotenv

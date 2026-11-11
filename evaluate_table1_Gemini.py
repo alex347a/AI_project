@@ -5,10 +5,6 @@ import os
 import numpy as np
 from llmastar.pather import AStar, LLMAStar
 
-# Set your Groq API key (or retrieve from system environment)
-GROQ_API_KEY = "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"
-os.environ["GROQ_API_KEY"] = os.getenv("GROQ_API_KEY") or GROQ_API_KEY
-
 def evaluate_and_save_csv(
     dataset_path="dataset/environment_50_30.json",
     output_csv="table1_results.csv",

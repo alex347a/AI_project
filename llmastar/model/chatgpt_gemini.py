@@ -5,9 +5,14 @@ from openai import OpenAI
 class ChatGPT:
     def __init__(self, method, sysprompt, example):
         api_key = os.getenv("GEMINI_API_KEY")
-        
-        # Bypass local network SSL interception if present
-        http_client = httpx.Client(verify=False)
+        if not api_key:
+            raise RuntimeError(
+                "GEMINI_API_KEY is not set. Export it first, e.g.  export GEMINI_API_KEY=...  "
+                "(the Table 1 statistics can be recomputed without any key, see README)."
+            )
+        # SSL verification stays ON by default; set LLMASTAR_INSECURE_SSL=1 only behind a
+        # proxy that intercepts HTTPS.
+        http_client = httpx.Client(verify=os.getenv("LLMASTAR_INSECURE_SSL") != "1")
         self.client = OpenAI(api_key=api_key,
                      base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
                      http_client=http_client)
