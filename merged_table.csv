@@ -1,0 +1,7 @@
+Prompt,Version,OR(%),SR(%),RL(%),VPR(%),n,replaced
+standard,as run (fixed w=2 fallback),49.16,68.93,102.76,100.00,1000,0
+standard,dynamic WA* fallback,52.07,71.31,102.53,100.00,1000,103
+cot,as run (fixed w=2 fallback),51.98,70.96,102.44,100.00,1000,0
+cot,dynamic WA* fallback,54.20,72.74,102.31,100.00,1000,84
+repe,as run (fixed w=2 fallback),49.98,69.60,102.68,100.00,1000,0
+repe,dynamic WA* fallback,52.68,71.88,102.51,100.00,1000,111
