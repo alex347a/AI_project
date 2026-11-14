@@ -3,8 +3,8 @@
 This code base is built on the official LLM-A* repository
 (Meng et al., 2024, https://github.com/SilinMeng0510/llm-astar, MIT license, see `LICENSE`).
 Modifications made for this project: a Gemini backend (`llmastar/model/chatgpt_gemini.py`),
-a resumable Table 1 benchmark (`table1_benchmark.py`), offline statistics (`table1_stats.py`),
-and the saved results of our runs (`results_gemini_1000/`).
+a resumable Table 1 benchmark (`table1_benchmark.py`), offline statistics (`table1_stats.py`,
+`stats_tools/`), and the saved results of our runs (`results_gemini_1000/`, `results_gemini/`).
 
 ## 1. Contents
 
@@ -13,15 +13,21 @@ llmastar/                 A*, LLM-A* and model wrappers (official code, adapted)
 dataset/environment_50_30.json   the 100 public maps (10 start-goal pairs each = 1,000 cases)
 table1_benchmark.py       runs A* and LLM-A* on the dataset and writes one CSV per prompt
 table1_stats.py           recomputes Table 1 + standard deviations / confidence intervals from the CSVs
-results_gemini_1000/      per-case results of our full 1,000-case run (standard, cot, repe)
+results_gemini_1000/      run A: per-case results of a full 1,000-case run (standard, cot, repe)
+results_gemini/           run B: second full run (1,000 cases per prompt), same model and settings
+stats_tools/              analysis scripts used in the report (two-run analysis, no-waypoint ablation)
+ablation_out/, two_run_out/   output tables of these scripts (CSV)
 requirements.txt          Python dependencies
 ```
 
-## 2. Setup (tested layout: Ubuntu 22.04, Python 3.11, no GPU)
+## 2. Setup (Python 3.11, no GPU)
+
+Developed and run on Windows with Python 3.11; the offline commands below were also checked
+on Linux (Ubuntu, Python 3.12) in a fresh virtual environment.
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
 
@@ -29,16 +35,17 @@ No API key is stored in this repository. Keys are only read from environment var
 
 ## 3. Reproduce Table 1 WITHOUT an API key
 
-The per-case outputs of our run are saved in `results_gemini_1000/`
-(`gpt_standard.csv`, `gpt_cot.csv`, `gpt_repe.csv`; the file prefix `gpt` is the
-name of the model slot in the original code, the model actually used is Gemini, see Section 4).
+The per-case outputs of our two runs are saved in `results_gemini_1000/` (run A) and
+`results_gemini/` (run B), as `gpt_standard.csv`, `gpt_cot.csv`, `gpt_repe.csv`.
+The file prefix `gpt` is the name of the model slot in the original code; the model actually
+used is Gemini, see Section 4.
 
 ```bash
 python table1_benchmark.py --table-only --outdir results_gemini_1000 --configs gpt:standard,gpt:cot,gpt:repe
 python table1_stats.py --dir results_gemini_1000 --out table1_with_stats.csv
 ```
 
-Expected output (geometric means over 1,000 cases, 95% cluster-bootstrap intervals over the 100 maps):
+Expected output for run A (geometric means over 1,000 cases, 95% cluster-bootstrap intervals over the 100 maps):
 
 | Prompt   | OR (%) [95% CI]      | SR (%) [95% CI]      | RL (%) | VPR (%) |
 |----------|----------------------|----------------------|--------|---------|
@@ -46,9 +53,26 @@ Expected output (geometric means over 1,000 cases, 95% cluster-bootstrap interva
 | CoT      | 51.98 [47.6; 56.5]   | 70.96 [68.0; 74.0]   | 102.44 | 100     |
 | RePE     | 49.98 [45.8; 54.5]   | 69.60 [66.6; 72.8]   | 102.68 | 100     |
 
+Run B (`--outdir results_gemini` / `--dir results_gemini`) gives OR 47.55 / 49.91 / 48.88,
+SR 67.56 / 69.50 / 68.63 and RL 102.58 / 102.46 / 102.48 for standard / CoT / RePE (VPR 100).
+
 OR = operation ratio, SR = storage ratio, RL = relative path length, VPR = valid path ratio
 (all relative to A*, as in Table 1 of the paper). `table1_stats.py` also prints the standard
 deviation of the per-case log-ratios and the bootstrap standard error.
+
+### Additional statistics used in the report (no API key needed)
+
+```bash
+python stats_tools/ablation_no_waypoints.py --ref results_gemini_1000 --out ablation_out
+python stats_tools/two_run_analysis.py --run-a results_gemini_1000 --run-b results_gemini --out two_run_out --ablation ablation_out/no_waypoints.csv
+```
+
+`results_gemini_1000/` (run A) and `results_gemini/` (run B) are two complete runs of the same
+1,000 cases with the same model and settings. `ablation_no_waypoints.py` runs the LLM-A* search
+with an empty waypoint list (no LLM call, about 1-3 minutes) and writes `ablation_out/`.
+`two_run_analysis.py` writes `two_run_out/`: Table 1 for each run and pooled, run-to-run
+variability, prompt contrasts, comparison with the paper, and the comparison of the LLM
+waypoints with the empty-waypoint search.
 
 ## 4. Re-run the LLM experiments (requires a key)
 
@@ -58,12 +82,15 @@ python table1_benchmark.py --outdir my_results --configs gpt:standard,gpt:cot,gp
 python table1_stats.py --dir my_results
 ```
 
-Settings used for our run:
+Settings used for our runs:
 
 - Model: `gemini-3.5-flash-lite`, called through Gemini's OpenAI-compatible endpoint
-  (`llmastar/model/chatgpt_gemini.py`), temperature 0, one run per case.
-- Output-token budget per call: `--max-tokens` (default 8000).
-- `table1_benchmark.py` is resumable: cases already present in the output CSVs are skipped.
+  (`llmastar/model/chatgpt_gemini.py`), temperature 0.
+- Output-token budget per waypoint call: `--max-tokens` of `table1_benchmark.py`
+  (default 8000; it overrides the value 1000 written in `llm_a_star.py`).
+- `table1_benchmark.py` is resumable: cases already present in the output CSVs are skipped,
+  and it stops cleanly when the API quota is reached (run the same command again later).
+  `--reverse` processes the environments from the last one to the first.
 - Without a key, the code stops with the message `GEMINI_API_KEY is not set`.
 
 ## 5. Using the planners on a new map (input / output format)
