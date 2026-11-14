@@ -15,10 +15,10 @@ query = {"start": [5, 5], "goal": [27, 15], "size": [51, 31],
          "range_x": [0, 51], "range_y": [0, 31]}
 
 # Each search gets its own copy, because the original classes edit range_x/range_y in place
-astar    = AStar().searching(query=copy.deepcopy(query), filepath='astar.png')
-bi_astar = BiAStar().searching(query=copy.deepcopy(query), filepath='bi_astar.png')
-llm      = LLMAStar(llm='gpt', prompt='standard').searching(query=copy.deepcopy(query), filepath='llm.png')
-bi_llm   = BiLLMAStarFast(llm='gpt', prompt='standard').searching(query=copy.deepcopy(query), filepath='bi_llm.png')
+astar    = AStar().searching(query=copy.deepcopy(query), filepath='testResultImages/astar.png')
+bi_astar = BiAStar().searching(query=copy.deepcopy(query), filepath='testResultImages/bi_astar.png')
+llm      = LLMAStar(llm='gpt', prompt='standard').searching(query=copy.deepcopy(query), filepath='testResultImages/llm.png')
+bi_llm   = BiLLMAStarFast(llm='gpt', prompt='standard').searching(query=copy.deepcopy(query), filepath='testResultImages/bi_llm.png')
 
 print("A*        :", astar)
 print("Bi A*     :", bi_astar)
