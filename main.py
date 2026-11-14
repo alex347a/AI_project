@@ -24,3 +24,23 @@ print("A*        :", astar)
 print("Bi A*     :", bi_astar)
 print("LLM-A*    :", llm)
 print("Bi LLM-A* :", bi_llm)
+
+# ---- ablation: what does each use of the LLM plan contribute?
+# The LLM output varies between calls, so each config gets several runs.
+N_RUNS = 3
+configs = [("no LLM info", dict(use_incumbent=False, use_guide=False)),
+           ("incumbent only", dict(use_incumbent=True, use_guide=False)),
+           ("guide only", dict(use_incumbent=False, use_guide=True)),
+           ("both", dict())]
+
+print("\nAblation (operation = total expansions, storage = total touched, length)")
+for name, kw in configs:
+    for run in range(N_RUNS):
+        r = BiLLMAStarFast(llm='gpt', prompt='standard', **kw).searching(
+            query=copy.deepcopy(query),
+            filepath=f'testResultImages/abl_{name.replace(" ", "_")}_{run}.png',
+            show=False, plot=False)
+        s = r['stats']
+        print(f"{name:15s} run {run}: op={r['operation']:4d} storage={r['storage']:4d} "
+              f"len={r['length']:.3f} | search={s['expanded']} incumbent={s['incumbent_expanded']} "
+              f"pruned={s['pruned']} inc_cost={s['incumbent_cost']}")

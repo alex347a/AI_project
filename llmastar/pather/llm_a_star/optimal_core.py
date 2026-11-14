@@ -18,6 +18,10 @@ waypoints are. The LLM plan is used in two ways that cannot hurt correctness:
 Collision semantics match the shapely-based LLMAStar.is_collision: an edge collides iff one of
 its endpoints lies on a barrier segment or on the border lines (barriers sit on integer
 coordinates and every move is a unit step, so touching can only happen at an endpoint).
+
+Work accounting: `expanded` / `touched` cover only the bidirectional search. The A* hops that
+build the incumbent are counted separately (`incumbent_expanded` / `incumbent_touched`), and
+`total_expanded` / `total_touched` are the sums.
 """
 import heapq
 import math
@@ -143,7 +147,10 @@ class Grid:
 
 # --------------------------------------------------------------------------- LLM-derived helpers
 def astar_hop(grid, a, b, max_expansions):
-    """Small unidirectional A* between two waypoints. Returns an index path or None."""
+    """Small unidirectional A* between two waypoints.
+
+    Returns (path | None, expanded, touched) so the caller can account for the work done.
+    """
     W, blocked, moves, h = grid.W, grid.blocked, grid.moves, grid.h
     by, bx = divmod(b, W)
     ay, ax = divmod(a, W)
@@ -160,11 +167,11 @@ def astar_hop(grid, a, b, max_expansions):
             path = [b]
             while path[-1] != a:
                 path.append(par[path[-1]])
-            return path[::-1]
+            return path[::-1], expanded, len(g)
         closed.add(i)
         expanded += 1
         if expanded > max_expansions:
-            return None
+            return None, expanded, len(g)
         y, x = divmod(i, W)
         gi = g[i]
         for dx, dy, off, c in moves:
@@ -176,11 +183,15 @@ def astar_hop(grid, a, b, max_expansions):
                 g[n] = ng
                 par[n] = i
                 _heappush(heap, (ng + h(x + dx, y + dy, bx, by), n))
-    return None
+    return None, expanded, len(g)
 
 
-def build_incumbent(grid, start, goal, waypoints, cap_factor=20):
-    """Stitch the waypoints into a feasible start->goal path. Returns (path, cost, hop_expansion_cap_hits) or None."""
+def build_incumbent(grid, start, goal, waypoints, cap_factor=20, work=None):
+    """Stitch the waypoints into a feasible start->goal path. Returns (path, cost) or None.
+
+    `work`, if given, is a dict with "expanded" and "touched" counters that accumulate the
+    cost of every hop search (including failed ones).
+    """
     path = [start]
     cur = start
     W = grid.W
@@ -189,7 +200,10 @@ def build_incumbent(grid, start, goal, waypoints, cap_factor=20):
             continue
         (cy, cx), (wy, wx) = divmod(cur, W), divmod(w, W)
         cap = int(cap_factor * (grid.h(cx, cy, wx, wy) + 10))
-        hop = astar_hop(grid, cur, w, cap)
+        hop, e, t = astar_hop(grid, cur, w, cap)
+        if work is not None:
+            work["expanded"] += e
+            work["touched"] += t
         if hop is None:
             if w == goal:
                 return None
@@ -272,6 +286,7 @@ def bidirectional_search(grid, start, goal, guide=None, incumbent=None, record_o
         hp.append((round(h0, 9), gk0, h0, node) if guide_first else (round(h0, 9), h0, gk0, node))
 
     pushes = 0
+    pruned = 0
     touched = 2
     peak = 2
     expanded = [0, 0]
@@ -324,13 +339,14 @@ def bidirectional_search(grid, start, goal, guide=None, incumbent=None, record_o
             nh = h(x + dx, y + dy, ttx, tty)
             nf = round(ng + nh, 9)
             if nf >= mu - EPS:
+                pruned += 1
                 continue            # cannot lead to a path better than mu (h is admissible)
             gk = guide[n] if guide is not None else 0
             _heappush(heap, (nf, gk, nh, n) if guide_first else (nf, nh, gk, n))
             pushes += 1
 
     stats.update(expanded=expanded[0] + expanded[1], expanded_fwd=expanded[0], expanded_bwd=expanded[1],
-                 pushes=pushes, touched=touched, peak_open=peak)
+                 pushes=pushes, pruned=pruned, touched=touched, peak_open=peak)
 
     if meet is not None:
         left = [meet]
@@ -355,10 +371,11 @@ def solve(grid, start, goal, waypoints=(), use_incumbent=True, use_guide=True,
     """Plan -> incumbent -> guide -> optimal search. Returns a dict with path, cost, stats, orders."""
     t_all = perf_counter()
     incumbent = None
+    inc_work = {"expanded": 0, "touched": 0}
     t_inc = 0.0
     if use_incumbent and waypoints:
         t = perf_counter()
-        incumbent = build_incumbent(grid, start, goal, waypoints, hop_cap_factor)
+        incumbent = build_incumbent(grid, start, goal, waypoints, hop_cap_factor, inc_work)
         t_inc = perf_counter() - t
 
     guide = None
@@ -375,6 +392,10 @@ def solve(grid, start, goal, waypoints=(), use_incumbent=True, use_guide=True,
                                   and abs(incumbent[1] - cost) <= 1e-7)
     stats["t_incumbent"] = t_inc
     stats["t_guide"] = t_guide
+    stats["incumbent_expanded"] = inc_work["expanded"]
+    stats["incumbent_touched"] = inc_work["touched"]
+    stats["total_expanded"] = stats["expanded"] + inc_work["expanded"]
+    stats["total_touched"] = stats["touched"] + inc_work["touched"]
     stats["t_search"] = stats.pop("seconds")
     stats["t_total"] = perf_counter() - t_all
     return {"path": path, "cost": cost, "stats": stats, "orders": orders}

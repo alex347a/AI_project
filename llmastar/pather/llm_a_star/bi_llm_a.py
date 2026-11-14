@@ -9,6 +9,9 @@ Drop this file and optimal_core.py into llmastar/pather/llm_a_star/ and use:
 The path is optimal on the grid graph regardless of what the LLM returns. The LLM plan only
 (1) gives an upper bound that prunes the heap and (2) breaks ties between equal-f nodes.
 Toggle them with use_incumbent / use_guide / guide_first for ablations.
+
+"operation" and "storage" include the work spent building the incumbent from the LLM waypoints,
+not just the final bidirectional search. The split is in result["stats"].
 """
 import copy
 import time
@@ -60,8 +63,8 @@ class BiLLMAStarFast(LLMAStar):
         stats["llm_seconds"] = llm_seconds
         path = [grid.xy(i) for i in res["path"]]
         result = {
-            "operation": stats["expanded"],      # unique expansions (each node closes once per side)
-            "storage": stats["touched"],         # nodes that ever received a g value
+            "operation": stats["total_expanded"],   # incumbent hops + bidirectional search
+            "storage": stats["total_touched"],      # upper bound: hop and search nodes may overlap
             "length": res["cost"],
             "llm_output": self.target_list,
             "stats": stats,
