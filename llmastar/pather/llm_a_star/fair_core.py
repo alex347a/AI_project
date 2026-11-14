@@ -1,25 +1,24 @@
 """
 fair_core.py -- apples-to-apples helpers for llmastar/pather/llm_a_star/ (next to optimal_core.py).
 
-Everything here runs on the SAME flat Grid (bytearray blocked map, array g/parent tables), so
-speed and memory differences come from the algorithm, not from shapely / tuples / list-CLOSED.
+Everything runs on the SAME flat Grid (bytearray blocked map, array g/parent tables).
 
-  grid_astar        plain A*, same Grid and same (octile) heuristic Bi uses
-  grid_llm_astar    the ORIGINAL LLM-A* (h = d(goal) + d(current target), target advances when a
-                    neighbour equals it, OPEN is re-keyed), re-implemented on the Grid
-  solve_counted     Bi LLM-A* that also counts the work done OUTSIDE the main search:
-                    incumbent hop A* expansions and guide-BFS cells
+  grid_astar        plain A*, same Grid and same heuristic the optimal search uses
+  grid_llm_astar    the ORIGINAL LLM-A* (h = d(goal) + d(current target), OPEN re-keyed)
+  solve_counted     optimal UNIDIRECTIONAL LLM-A*: forward A* with an optional incumbent bound
+                    (prunes f > incumbent cost) and an optional guide tie-break. Also counts the
+                    work done OUTSIDE the main search: incumbent hop A* expansions and guide cells.
 """
 import heapq
 import math
 from array import array
 
-from .optimal_core import Grid, INF, bidirectional_search, build_guide  # noqa: F401 (Grid re-exported)
+from .optimal_core import Grid, INF, build_guide  # noqa: F401 (Grid re-exported)
 
 _push, _pop = heapq.heappush, heapq.heappop
 
 
-def _rebuild(grid, par, i, g):
+def _rebuild(par, i):
     path = [i]
     while par[path[-1]] != path[-1]:
         path.append(par[path[-1]])
@@ -39,7 +38,7 @@ def grid_astar(grid, start, goal):
     g[start] = 0.0
     par[start] = start
     heap = [(h(sx, sy, gx, gy), start)]
-    expanded, touched = 0, 1
+    expanded, touched, peak = 0, 1, 1
     while heap:
         _, i = _pop(heap)
         if closed[i]:
@@ -61,19 +60,19 @@ def grid_astar(grid, start, goal):
                 g[n] = ng
                 par[n] = i
                 _push(heap, (ng + h(x + dx, y + dy, gx, gy), n))
+        peak = max(peak, len(heap))
     if g[goal] == INF:
         return None
-    path = _rebuild(grid, par, goal, g)
+    path = _rebuild(par, goal)
     return {"cost": grid.path_cost(path), "path": path, "expanded": expanded,
-            "work": expanded, "touched": touched}
+            "work": expanded, "touched": touched, "storage": touched, "peak_open": peak}
 
 
 # --------------------------------------------------------------------------- original LLM-A*
 def grid_llm_astar(grid, start, goal, target_list):
     """
-    Original LLM-A* semantics. target_list = [start, *waypoints, goal] as grid indices, exactly the
-    list LLMAStar builds. Euclidean h(s) = d(s, goal) + d(s, target), like the original.
-    Stale heap entries are skipped instead of re-expanded (same unique-closed count).
+    Original LLM-A* semantics. target_list = [start, *waypoints, goal] as grid indices.
+    Euclidean h(s) = d(s, goal) + d(s, target). Stale heap entries are skipped.
     """
     W = grid.W
     N = W * grid.H
@@ -91,7 +90,7 @@ def grid_llm_astar(grid, start, goal, target_list):
     g[start] = 0.0
     par[start] = start
     heap = [(hypot(gx - sx, gy - sy) + hypot(tx - sx, ty - sy), sx, sy)]
-    expanded, touched = 0, 1
+    expanded, touched, peak = 0, 1, 1
     while heap:
         _, x, y = _pop(heap)
         i = y * W + x
@@ -122,14 +121,15 @@ def grid_llm_astar(grid, start, goal, target_list):
                 par[n] = i
                 nx, ny = x + dx, y + dy
                 _push(heap, (ng + hypot(gx - nx, gy - ny) + hypot(tx - nx, ty - ny), nx, ny))
+        peak = max(peak, len(heap))
     if g[goal] == INF:
         return None
-    path = _rebuild(grid, par, goal, g)
+    path = _rebuild(par, goal)
     return {"cost": grid.path_cost(path), "path": path, "expanded": expanded,
-            "work": expanded, "touched": touched}
+            "work": expanded, "touched": touched, "storage": touched, "peak_open": peak}
 
 
-# --------------------------------------------------------------------------- Bi LLM-A* with full accounting
+# --------------------------------------------------------------------------- optimal unidirectional search
 def _hop_counted(grid, a, b, max_expansions):
     W, blocked, moves, h = grid.W, grid.blocked, grid.moves, grid.h
     by, bx = divmod(b, W)
@@ -167,7 +167,7 @@ def _hop_counted(grid, a, b, max_expansions):
 
 
 def _incumbent_counted(grid, start, goal, waypoints, cap_factor):
-    """Same stitching as optimal_core.build_incumbent, but also returns total hop expansions."""
+    """Stitch hop paths start -> waypoints -> goal. Returns ((path, cost) | None, hop expansions)."""
     total = 0
     path, cur, W = [start], start, grid.W
     for w in list(waypoints) + [goal]:
@@ -188,11 +188,72 @@ def _incumbent_counted(grid, start, goal, waypoints, cap_factor):
     return (path, grid.path_cost(path)), total
 
 
+EPS = 1e-9
+
+
+def unidirectional_search(grid, start, goal, guide=None, incumbent=None, guide_first=True):
+    """
+    Forward A*. f = g + h is admissible and consistent, so the path is optimal.
+    incumbent = (path, cost): children with f >= cost - EPS are never pushed (same rule as
+    bidirectional_search). If nothing better is found, the incumbent itself is the answer.
+    guide: per-cell table, smaller = closer to the LLM plan; breaks ties between equal-f nodes.
+    """
+    W = grid.W
+    N = W * grid.H
+    blocked, moves, h = grid.blocked, grid.moves, grid.h
+    gy, gx = divmod(goal, W)
+    sy, sx = divmod(start, W)
+    ub = incumbent[1] - EPS if incumbent is not None else INF
+    g = array("d", [INF]) * N
+    par = array("i", [-1]) * N
+    closed = bytearray(N)
+    g[start] = 0.0
+    par[start] = start
+    h0 = h(sx, sy, gx, gy)
+    d0 = guide[start] if guide is not None else 0
+    f0 = round(h0, 9)
+    heap = [(f0, d0, h0, start) if guide_first else (f0, h0, d0, start)]
+    expanded, touched, peak = 0, 1, 1
+    while heap:
+        _, _, _, i = _pop(heap)
+        if closed[i]:
+            continue
+        closed[i] = 1
+        expanded += 1
+        if i == goal:
+            break
+        y, x = divmod(i, W)
+        gi = g[i]
+        for dx, dy, off, c in moves:
+            n = i + off
+            if blocked[n] or closed[n]:
+                continue
+            ng = gi + c
+            if ng < g[n]:
+                hn = h(x + dx, y + dy, gx, gy)
+                f = round(ng + hn, 9)
+                if f >= ub:
+                    continue            # cannot beat the incumbent (h is admissible)
+                if g[n] == INF:
+                    touched += 1
+                g[n] = ng
+                par[n] = i
+                d = guide[n] if guide is not None else 0
+                _push(heap, (f, d, hn, n) if guide_first else (f, hn, d, n))
+        peak = max(peak, len(heap))
+    stats = {"expanded": expanded, "touched": touched, "peak_open": peak}
+    if g[goal] == INF:
+        if incumbent is not None:       # nothing beat the incumbent, so it is optimal
+            return incumbent[0], incumbent[1], stats
+        return None, None, stats
+    path = _rebuild(par, goal)
+    return path, grid.path_cost(path), stats
+
+
 def solve_counted(grid, start, goal, waypoints=(), use_incumbent=True, use_guide=True,
                   guide_radius=2, hop_cap_factor=20, guide_first=True):
     """
-    Same pipeline as optimal_core.solve, but stats["work"] = main-search expansions
-    + incumbent hop expansions + guide-BFS cells, so nothing is hidden.
+    stats["work"] = main-search expansions + incumbent hop expansions + guide-BFS cells.
     """
     incumbent, hop_exp = None, 0
     if use_incumbent and waypoints:
@@ -204,11 +265,13 @@ def solve_counted(grid, start, goal, waypoints=(), use_incumbent=True, use_guide
         guide = build_guide(grid, cells, guide_radius)
         guide_cells = len(guide) - guide.count(guide_radius + 1)   # cells the BFS reached
 
-    path, cost, stats, _ = bidirectional_search(grid, start, goal, guide, incumbent, False, guide_first)
+    path, cost, stats = unidirectional_search(grid, start, goal, guide, incumbent, guide_first)
     if path is None:
         return None
     stats["hop_expansions"] = hop_exp
     stats["guide_cells"] = guide_cells
     stats["work"] = stats["expanded"] + hop_exp + guide_cells
+    stats["storage"] = stats["touched"] + (len(incumbent[0]) if incumbent else 0) + guide_cells
     return {"cost": cost, "path": path, "expanded": stats["expanded"], "work": stats["work"],
-            "touched": stats["touched"], "stats": stats}
+            "touched": stats["touched"], "storage": stats["storage"],
+            "peak_open": stats["peak_open"], "stats": stats}
