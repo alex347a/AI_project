@@ -1,26 +1,33 @@
 """
-table1_bi_benchmark.py -- Table 1 style comparison (OR / WR / SR / RL / VPR) for the
-bidirectional variants. Every method runs on the SAME flat Grid and the SAME LLM plan per case,
-and every ratio divides by a baseline from the same implementation.
+table1_bi_benchmark.py -- Table 1 style comparison (OR / SR / RL / VPR, optional WOR) for the
+optimal LLM-A* variants, unidirectional and bidirectional. Every method runs on the SAME flat Grid
+and the SAME LLM plan per case, and every ratio divides by a baseline from the same implementation.
 
 Methods (per case):
-  astar  plain A* on the Grid
-  bi0    optimal bidirectional A*, no LLM        <- default baseline (100%)
+  astar  plain A* on the Grid (= unidirectional with no LLM)
+  bi0    optimal bidirectional A*, no LLM
   big    bi0 + LLM guide only
   bii    bi0 + LLM incumbent bound only
   bif    full Bi LLM-A* (incumbent + guide)
+  ug     unidirectional + LLM guide only
+  ui     unidirectional + LLM incumbent bound only
+  uf     full Uni LLM-A* (incumbent + guide)
 
 Ratios (geometric mean over cases, in %, < 100 = cheaper than the baseline):
-  OR = operations (main search + incumbent hop expansions)
-  WR = work (OR + guide-BFS cells, the strictest count)
-  SR = storage (touched nodes; search + hop nodes, an upper bound)
-  RL = relative path length (valid paths only; the optimal methods must show 100.00)
+  OR  = operations (main search + incumbent hop expansions)
+  WOR = ops + w * guide-BFS cells (only with --guide-weight w; w = cost of a BFS cell relative
+        to one expansion, measure it with w_calculator.py)
+  SR  = storage (touched nodes; search + incumbent hop nodes, an upper bound)
+  RL  = relative path length (valid paths only; every method here is optimal, so 100.00)
+
+Read the table against the matching baseline:
+  Bi rows  vs "Bi A* (grid)"  ->  --baseline bi0
+  Uni rows vs "A* (grid)"     ->  --baseline astar
 
 Usage (PowerShell, from the llm-astar folder, key set as for table1_benchmark.py):
     python table1_bi_benchmark.py --configs gpt:standard --max-cases 5     # quick test
     python table1_bi_benchmark.py                                          # all six configs
-    python table1_bi_benchmark.py --baseline astar                         # divide by plain A* instead
-    python table1_bi_benchmark.py --table-only
+    python table1_bi_benchmark.py --baseline astar --table-only            # rebuild vs plain A*
 """
 import argparse
 import copy
@@ -32,11 +39,12 @@ import time
 import table1_benchmark as tb
 from table1_benchmark import _last, call_with_retry, geo_mean, is_rate_limit, parse_configs, path_is_valid
 from llmastar.pather import LLMAStar
-from llmastar.pather.llm_a_star.fair_core import Grid, grid_astar, solve_counted
+from llmastar.pather.llm_a_star.fair_core import Grid, grid_astar, solve_counted_bi, solve_counted_uni
 
-METHODS = ["astar", "bi0", "big", "bii", "bif"]
+METHODS = ["astar", "bi0", "big", "bii", "bif", "ug", "ui", "uf"]
 LABEL = {"astar": "A* (grid)", "bi0": "Bi A* (grid)", "big": "Bi + guide",
-         "bii": "Bi + incumbent", "bif": "Bi LLM-A* (full)"}
+         "bii": "Bi + incumbent", "bif": "Bi LLM-A* (full)",
+         "ug": "Uni + guide", "ui": "Uni + incumbent", "uf": "Uni LLM-A* (full)"}
 FIELDS = (["env_id", "start", "goal", "llm_waypoints", "status", "error"]
           + [f"{m}_{k}" for m in METHODS for k in ("ops", "work", "touched", "cost", "valid")])
 
@@ -89,10 +97,13 @@ def run_case(llm, prompt, env, start, goal, cache, cache_file, args):
     kw = dict(guide_radius=args.guide_radius, hop_cap_factor=args.hop_cap)
     results = {
         "astar": grid_astar(grid, s, g),
-        "bi0": solve_counted(grid, s, g, (), use_incumbent=False, use_guide=False, **kw),
-        "big": solve_counted(grid, s, g, wps, use_incumbent=False, use_guide=True, **kw),
-        "bii": solve_counted(grid, s, g, wps, use_incumbent=True, use_guide=False, **kw),
-        "bif": solve_counted(grid, s, g, wps, use_incumbent=True, use_guide=True, **kw),
+        "bi0": solve_counted_bi(grid, s, g, (), use_incumbent=False, use_guide=False, **kw),
+        "big": solve_counted_bi(grid, s, g, wps, use_incumbent=False, use_guide=True, **kw),
+        "bii": solve_counted_bi(grid, s, g, wps, use_incumbent=True, use_guide=False, **kw),
+        "bif": solve_counted_bi(grid, s, g, wps, use_incumbent=True, use_guide=True, **kw),
+        "ug": solve_counted_uni(grid, s, g, wps, use_incumbent=False, use_guide=True, **kw),
+        "ui": solve_counted_uni(grid, s, g, wps, use_incumbent=True, use_guide=False, **kw),
+        "uf": solve_counted_uni(grid, s, g, wps, use_incumbent=True, use_guide=True, **kw),
     }
 
     row = {"llm_waypoints": max(len(planner.target_list) - 2, 0), "status": "ok", "error": ""}
@@ -102,7 +113,7 @@ def run_case(llm, prompt, env, start, goal, cache, cache_file, args):
         xy = [grid.xy(i) for i in r["path"]]
         row[f"{m}_ops"] = r.get("ops", r["expanded"])
         row[f"{m}_work"] = r["work"]
-        row[f"{m}_touched"] = r["touched"]
+        row[f"{m}_touched"] = r["storage"]      # search + incumbent hop nodes
         row[f"{m}_cost"] = r["cost"]
         row[f"{m}_valid"] = path_is_valid(xy, grid.xy(s), grid.xy(g))
     return row
@@ -205,7 +216,9 @@ def ratios(rows, m, base, key):
             out.append(float(r[f"{m}_{key}"]) / d)
     return out
 
+
 def wratios(rows, m, base, w):
+    """Ratio of ops + w * guide cells (guide cells = work - ops)."""
     out = []
     for r in rows:
         num = float(r[f"{m}_ops"]) + w * (float(r[f"{m}_work"]) - float(r[f"{m}_ops"]))
@@ -242,7 +255,7 @@ def build_table(args, configs):
     base = args.baseline
     other = "astar" if base == "bi0" else "bi0"
     print("\n" + "=" * 86)
-    print(f"BIDIRECTIONAL TABLE (values in %, geometric means, baseline = {LABEL[base]} = 100)")
+    print(f"OPTIMAL LLM-A* TABLE (values in %, geometric means, baseline = {LABEL[base]} = 100)")
     print("Cases finished per config: " + ", ".join(f"{l}:{p}={len(r)}" for (l, p), r in data.items()))
     print(f"Table uses the {n} cases that ALL listed configs finished.")
     if n < 30:
@@ -261,16 +274,19 @@ def build_table(args, configs):
         rs = [rows[k] for k in common]
         if not rs:
             continue
-        for m in ("big", "bii", "bif"):
+        for m in ("big", "bii", "bif", "ug", "ui", "uf"):
             table.append(table_row(LABEL[m], llm, prompt, rs, m, base, w))
         for r in rs:   # every method here is optimal, so all lengths must match the baseline
             bad += sum(abs(float(r[f"{m}_cost"]) - float(r[f"{base}_cost"])) > 1e-6 for m in METHODS)
 
     widths = [max(len(str(row[i])) for row in [head] + table) for i in range(len(head))]
     for row in [head] + table:
-        print("  ".join(str(c).ljust(w) for c, w in zip(row, widths)))
-    print("\nOR = operations (search + incumbent hop expansions), SR = storage (touched nodes, upper bound),"
-          "\nRL = relative path length, VPR = valid path ratio, wpts = % of cases with >= 1 LLM waypoint.")
+        print("  ".join(str(c).ljust(wd) for c, wd in zip(row, widths)))
+    print("\nOR = operations (search + incumbent hop expansions), SR = storage (touched nodes incl. hops, "
+          "upper bound),\nRL = relative path length, VPR = valid path ratio, wpts = % of cases with >= 1 "
+          "LLM waypoint.")
+    if w is not None:
+        print(f"WOR = ops + {w} * guide-BFS cells.")
     if bad:
         print(f"!! {bad} method/case pairs had a path length different from the baseline: investigate.")
     else:
@@ -288,12 +304,12 @@ def build_table(args, configs):
 
 # --------------------------------------------------------------------------
 def parse_args():
-    p = argparse.ArgumentParser(description="Table 1 style comparison for bidirectional A*")
+    p = argparse.ArgumentParser(description="Table 1 style comparison for optimal (uni/bi) LLM-A*")
     p.add_argument("--dataset", default="dataset/environment_50_30.json")
     p.add_argument("--outdir", default="results_bi")
     p.add_argument("--configs", default=tb.ALL_CONFIGS)
     p.add_argument("--baseline", choices=["bi0", "astar"], default="bi0",
-                   help="what the ratios divide by (default: plain bidirectional A*)")
+                   help="what the ratios divide by (bi0 = plain bidirectional, astar = plain A*)")
     p.add_argument("--batch", type=int, default=10)
     p.add_argument("--max-cases", type=int, default=None)
     p.add_argument("--retries", type=int, default=3)
