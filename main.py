@@ -1,10 +1,9 @@
 import os
 import copy
-import openai
 from dotenv import load_dotenv
 
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+assert os.getenv("GEMINI_API_KEY"), "GEMINI_API_KEY not found: check your .env file"
 
 from llmastar.pather import AStar, LLMAStar
 from llmastar.pather.llm_a_star.bi_a_star import BiAStar

@@ -1,137 +1,80 @@
 """
-Bidirectional LLM-A* (fast version, no IDA* phase).
+Optimal bidirectional LLM-A*.
 
-Drop this file next to llm_a_star.py (llmastar/pather/llm_a_star/) and use:
+Drop this file and optimal_core.py into llmastar/pather/llm_a_star/ and use:
 
-    from llmastar.pather.llm_a_star.bi_llm_a_star_fast import BiLLMAStarFast
-    BiLLMAStarFast(llm='gpt', prompt='standard').searching(query=query, filepath='bi.png')
+    from llmastar.pather.llm_a_star.bi_llm_a import BiLLMAStarFast
+    BiLLMAStarFast(llm='gpt', prompt='standard').searching(query=query, filepath='bi_llm.png')
 
-One search grows from the start and one from the goal. Both use the LLM waypoint list
-(the goal side uses it reversed) and the same "distance to goal + distance to current
-waypoint" heuristic as LLMAStar. This heuristic is not admissible, so the path is valid
-but not guaranteed to be the shortest.
+The path is optimal on the grid graph regardless of what the LLM returns. The LLM plan only
+(1) gives an upper bound that prunes the heap and (2) breaks ties between equal-f nodes.
+Toggle them with use_incumbent / use_guide / guide_first for ablations.
 """
 import copy
-import heapq
-import math
+import time
 
 from .llm_a_star import LLMAStar
-
-
-class _Side:
-    """Search state for one direction (forward or backward)."""
-
-    def __init__(self, origin, goal, targets):
-        self.origin = origin
-        self.goal = goal
-        self.targets = targets          # waypoint list in this side's travel order
-        self.i = 1
-        self.target = targets[1]
-        self.open = []
-        self.closed = set()
-        self.order = []                 # expansion order, used for plotting
-        self.g = {origin: 0.0}
-        self.parent = {origin: origin}
+from .optimal_core import Grid, solve
 
 
 class BiLLMAStarFast(LLMAStar):
-    """LLM-A* that searches from both the start and the goal."""
+    def __init__(self, llm='gpt', prompt='standard', use_incumbent=True, use_guide=True,
+                 guide_radius=8, hop_cap_factor=20, guide_first=True):
+        super().__init__(llm=llm, prompt=prompt)
+        self.use_incumbent = use_incumbent
+        self.use_guide = use_guide
+        self.guide_radius = guide_radius
+        self.hop_cap_factor = hop_cap_factor
+        self.guide_first = guide_first   # guide ranks ahead of h among equal-f nodes
 
-    # ---------- helpers ----------
-    def cost(self, s_start, s_goal):
-        """Memoised edge cost (collision checks are the slowest part of the search)."""
-        key = (s_start, s_goal)
-        c = self._cost_cache.get(key)
-        if c is None:
-            c = super().cost(s_start, s_goal)
-            self._cost_cache[key] = c
-            self._cost_cache[(s_goal, s_start)] = c
-        return c
-
-    @staticmethod
-    def _h_side(side, s):
-        return (math.hypot(side.goal[0] - s[0], side.goal[1] - s[1])
-                + math.hypot(side.target[0] - s[0], side.target[1] - s[1]))
-
-    def _push(self, side, s):
-        heapq.heappush(side.open, (side.g[s] + self._h_side(side, s), s))
-
-    def _advance_target(self, side):
-        side.i += 1
-        if side.i < len(side.targets):
-            side.target = side.targets[side.i]
-        side.open = [(side.g[s] + self._h_side(side, s), s) for _, s in side.open]
-        heapq.heapify(side.open)
-
-    def _path_length(self, path):
-        return sum(self._euclidean_distance(path[i], path[i + 1]) for i in range(len(path) - 1))
-
-    # ---------- phase 1: bidirectional LLM-A* ----------
-    def _bidirectional(self):
-        targets = list(self.target_list)
-        fwd = _Side(self.s_start, self.s_goal, targets)
-        bwd = _Side(self.s_goal, self.s_start, targets[::-1])
-        self._push(fwd, self.s_start)
-        self._push(bwd, self.s_goal)
-
-        mu, meet = math.inf, None
-
-        while fwd.open and bwd.open:
-            # expand the side with the smaller frontier
-            side, other = (fwd, bwd) if len(fwd.open) <= len(bwd.open) else (bwd, fwd)
-            f, s = heapq.heappop(side.open)
-            if s in side.closed:
-                continue
-            if f >= mu:                 # nothing left in this direction can beat the meeting point
-                break
-            side.closed.add(s)
-            side.order.append(s)
-
-            for s_n in self.get_neighbor(s):
-                if s_n == side.target and side.origin != side.target and side.goal != side.target:
-                    self._advance_target(side)
-                if s_n in side.closed:
-                    continue
-                new_cost = side.g[s] + self.cost(s, s_n)
-                if new_cost < side.g.get(s_n, math.inf):
-                    side.g[s_n] = new_cost
-                    side.parent[s_n] = s
-                    self._push(side, s_n)
-                    if s_n in other.g and new_cost + other.g[s_n] < mu:
-                        mu, meet = new_cost + other.g[s_n], s_n
-
-        if meet is None:
-            raise RuntimeError("Bidirectional search failed: the two searches never met (no path found).")
-
-        left = [meet]
-        while left[-1] != self.s_start:
-            left.append(fwd.parent[left[-1]])
-        right = [meet]
-        while right[-1] != self.s_goal:
-            right.append(bwd.parent[right[-1]])
-        path = left[::-1] + right[1:]
-        return path, fwd, bwd
-
-    # ---------- public entry point ----------
-    def searching(self, query, filepath='temp.png', show=True):
+    def searching(self, query, filepath='temp.png', show=True, plot=True):
         """
-        :param show: open the matplotlib window (False just saves the image)
+        :param show: open the matplotlib window
+        :param plot: set False to skip plotting (and the expansion-order bookkeeping) entirely
         """
         self.filepath = filepath
-        query = copy.deepcopy(query)    # _initialize_parameters edits range_x/range_y in place
+        query = copy.deepcopy(query)   # _initialize_parameters edits range_x/range_y in place
         print(query)
+
+        t = time.perf_counter()
         input_data = self._parse_query(query)
         self._initialize_parameters(input_data)
         self._initialize_llm_paths()
-        self._cost_cache = {}
+        llm_seconds = time.perf_counter() - t
 
-        path, fwd, bwd = self._bidirectional()
+        # self.range_x / range_y are the decremented ranges the original is_collision uses
+        grid = Grid(self.range_x, self.range_y, self.horizontal_barriers,
+                    self.vertical_barriers, self.u_set)
+        start = grid.index(*self.s_start)
+        goal = grid.index(*self.s_goal)
+        waypoints = grid.waypoint_indices(self.target_list[1:-1])
+
+        res = solve(grid, start, goal, waypoints,
+                    use_incumbent=self.use_incumbent, use_guide=self.use_guide,
+                    guide_radius=self.guide_radius, hop_cap_factor=self.hop_cap_factor,
+                    record_order=plot, guide_first=self.guide_first)
+        if res["path"] is None:
+            raise RuntimeError("No path exists between start and goal.")
+
+        stats = res["stats"]
+        stats["llm_seconds"] = llm_seconds
+        path = [grid.xy(i) for i in res["path"]]
         result = {
-            "operation": len(fwd.order) + len(bwd.order),
-            "storage": len(fwd.g) + len(bwd.g),
-            "length": self._path_length(path),
+            "operation": stats["expanded"],      # unique expansions (each node closes once per side)
+            "storage": stats["touched"],         # nodes that ever received a g value
+            "length": res["cost"],
             "llm_output": self.target_list,
+            "stats": stats,
         }
         print(result)
-        self.plot.animation(path, fwd.order + bwd.order, show, "Bi LLM-A*", self.filepath)
+
+        if plot:
+            fwd, bwd = ([grid.xy(i) for i in o] for o in res["orders"])
+            visited = []
+            for k in range(max(len(fwd), len(bwd))):   # interleave so the animation shows both searches
+                if k < len(fwd):
+                    visited.append(fwd[k])
+                if k < len(bwd):
+                    visited.append(bwd[k])
+            self.plot.animation(path, visited, show, "Bi LLM-A*", self.filepath)
         return result
