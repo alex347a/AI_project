@@ -1,0 +1,6 @@
+Method,Model,Prompt,OR(%),WOR(%),SR(%),RL(%),VPR(%),wpts(%),cases_in_table
+Bi A* (grid),-,-,100,100,100,100,100,-,5
+A* (grid),-,-,89.75,89.75,82.46,100.00,100.00,80.0,5
+Bi + guide,gpt,standard,99.68,107.32,99.55,100.00,100.00,80.0,5
+Bi + incumbent,gpt,standard,73.03,98.92,75.61,100.00,100.00,80.0,5
+Bi LLM-A* (full),gpt,standard,72.90,122.05,74.91,100.00,100.00,80.0,5
