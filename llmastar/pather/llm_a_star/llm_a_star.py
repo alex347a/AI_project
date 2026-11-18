@@ -201,4 +201,3 @@ class LLMAStar:
     def heuristic(self, s):
         """Calculate heuristic value."""
         return math.hypot(self.s_goal[0] - s[0], self.s_goal[1] - s[1]) + math.hypot(self.s_target[0] - s[0], self.s_target[1] - s[1])
-

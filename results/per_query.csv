@@ -1,0 +1,1 @@
+map_id,pair,sx,sy,gx,gy,n_waypoints,astar_valid,astar_ops,astar_storage,astar_len,astar_sec,orig_valid,orig_ops,orig_storage,orig_len,orig_OR,orig_SR,orig_RL,orig_sec,orig_error,new_valid,new_ops,new_storage,new_len,new_OR,new_SR,new_RL,new_sec,new_error,new_work,new_OR_work
