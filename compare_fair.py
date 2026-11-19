@@ -41,7 +41,7 @@ load_dotenv()  # must run before the llmastar imports
 from llmastar.env.search import plotting
 from llmastar.pather import AStar, LLMAStar
 from llmastar.pather.llm_a_star.fair_core import (Grid, grid_astar, grid_llm_astar,
-                                                  solve_counted)
+                                                  solve_counted_uni)
 
 plotting.Plotting.animation = lambda *a, **k: None
 
@@ -212,11 +212,11 @@ def make_algos(grid, start, goal, target_list):
     return {
         "A*": lambda: grid_astar(grid, start, goal),
         "LLM*": lambda: grid_llm_astar(grid, start, goal, tl),
-        "U0": lambda: solve_counted(grid, start, goal, (), use_incumbent=False, use_guide=False),
-        "UG": lambda: solve_counted(grid, start, goal, wps, use_incumbent=False, use_guide=True,
+        "U0": lambda: solve_counted_uni(grid, start, goal, (), use_incumbent=False, use_guide=False),
+        "UG": lambda: solve_counted_uni(grid, start, goal, wps, use_incumbent=False, use_guide=True,
                                     guide_radius=RADIUS),
-        "UI": lambda: solve_counted(grid, start, goal, wps, use_incumbent=True, use_guide=False),
-        "UF": lambda: solve_counted(grid, start, goal, wps, use_incumbent=True, use_guide=True,
+        "UI": lambda: solve_counted_uni(grid, start, goal, wps, use_incumbent=True, use_guide=False),
+        "UF": lambda: solve_counted_uni(grid, start, goal, wps, use_incumbent=True, use_guide=True,
                                     guide_radius=RADIUS),
     }
 

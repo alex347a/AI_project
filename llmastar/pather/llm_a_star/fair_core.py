@@ -3,11 +3,16 @@ fair_core.py -- apples-to-apples helpers for llmastar/pather/llm_a_star/ (next t
 
 Everything runs on the SAME flat Grid (bytearray blocked map, array g/parent tables).
 
-  grid_astar         plain A*, same Grid and same heuristic the optimal searches use
+  grid_astar         plain A*, same Grid, same heuristic and same tie-breaking as the optimal searches
   grid_llm_astar     the ORIGINAL LLM-A* (h = d(goal) + d(current target), OPEN re-keyed)
   solve_counted_uni  optimal UNIDIRECTIONAL LLM-A*: forward A* with an optional incumbent bound
                      (prunes f >= incumbent cost) and an optional guide tie-break
   solve_counted_bi   optimal BIDIRECTIONAL LLM-A* (optimal_core.bidirectional_search), same options
+
+Tie-breaking: every optimal search here (grid_astar, the incumbent hops, unidirectional_search,
+bidirectional_search) orders its heap by (round(f, 9), h, ...), so among equal-f nodes the one
+closest to the target is expanded first. Without this, A* wanders through the plateau of nodes
+whose f equals the optimal cost, which made plain A* look worse than it is.
 
 Counting convention (identical for solve_counted_uni and solve_counted_bi):
   ops      = main-search expansions + incumbent hop expansions
@@ -43,10 +48,11 @@ def grid_astar(grid, start, goal):
     closed = bytearray(N)
     g[start] = 0.0
     par[start] = start
-    heap = [(h(sx, sy, gx, gy), start)]
+    h0 = h(sx, sy, gx, gy)
+    heap = [(round(h0, 9), h0, start)]
     expanded, touched, peak = 0, 1, 1
     while heap:
-        _, i = _pop(heap)
+        _, _, i = _pop(heap)
         if closed[i]:
             continue
         closed[i] = 1
@@ -65,7 +71,8 @@ def grid_astar(grid, start, goal):
                     touched += 1
                 g[n] = ng
                 par[n] = i
-                _push(heap, (ng + h(x + dx, y + dy, gx, gy), n))
+                hn = h(x + dx, y + dy, gx, gy)
+                _push(heap, (round(ng + hn, 9), hn, n))
         peak = max(peak, len(heap))
     if g[goal] == INF:
         return None
@@ -79,6 +86,7 @@ def grid_llm_astar(grid, start, goal, target_list):
     """
     Original LLM-A* semantics. target_list = [start, *waypoints, goal] as grid indices.
     Euclidean h(s) = d(s, goal) + d(s, target). Stale heap entries are skipped.
+    (Deliberately NOT given the tie-break change: it reproduces the original algorithm.)
     """
     W = grid.W
     N = W * grid.H
@@ -144,10 +152,11 @@ def _hop_counted(grid, a, b, max_expansions):
     g = {a: 0.0}
     par = {a: a}
     closed = set()
-    heap = [(h(ax, ay, bx, by), a)]
+    h0 = h(ax, ay, bx, by)
+    heap = [(round(h0, 9), h0, a)]
     expanded = 0
     while heap:
-        _, i = _pop(heap)
+        _, _, i = _pop(heap)
         if i in closed:
             continue
         if i == b:
@@ -169,7 +178,8 @@ def _hop_counted(grid, a, b, max_expansions):
             if ng < g.get(n, INF):
                 g[n] = ng
                 par[n] = i
-                _push(heap, (ng + h(x + dx, y + dy, bx, by), n))
+                hn = h(x + dx, y + dy, bx, by)
+                _push(heap, (round(ng + hn, 9), hn, n))
     return None, expanded, len(g)
 
 

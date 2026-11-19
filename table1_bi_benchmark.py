@@ -21,8 +21,7 @@ Ratios (geometric mean over cases, in %, < 100 = cheaper than the baseline):
   RL  = relative path length (valid paths only; every method here is optimal, so 100.00)
 
 Read the table against the matching baseline:
-  Bi rows  vs "Bi A* (grid)"  ->  --baseline bi0
-  Uni rows vs "A* (grid)"     ->  --baseline astar
+  Default baseline is plain A* (--baseline astar).
 
 Usage (PowerShell, from the llm-astar folder, key set as for table1_benchmark.py):
     python table1_bi_benchmark.py --configs gpt:standard --max-cases 5     # quick test
@@ -308,7 +307,7 @@ def parse_args():
     p.add_argument("--dataset", default="dataset/environment_50_30.json")
     p.add_argument("--outdir", default="results_bi")
     p.add_argument("--configs", default=tb.ALL_CONFIGS)
-    p.add_argument("--baseline", choices=["bi0", "astar"], default="bi0",
+    p.add_argument("--baseline", choices=["bi0", "astar"], default="astar",
                    help="what the ratios divide by (bi0 = plain bidirectional, astar = plain A*)")
     p.add_argument("--batch", type=int, default=10)
     p.add_argument("--max-cases", type=int, default=None)
