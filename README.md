@@ -2,7 +2,7 @@
 
 This code base is built on the official LLM-A* repository
 (Meng et al., 2024, https://github.com/SilinMeng0510/llm-astar, MIT license, see `LICENSE`).
-Modifications made for this project: a Gemini backend (`llmastar/model/chatgpt_gemini.py`),
+Modifications made for this project: a configurable OpenAI-compatible backend, used with Gemini and GPT-4o mini (`llmastar/model/chatgpt_gemini.py`),
 a resumable Table 1 benchmark (`table1_benchmark.py`), offline statistics (`table1_stats.py`,
 `stats_tools/`), and the saved results of our runs (`results_gemini_1000/`, `results_gemini/`).
 
@@ -76,22 +76,39 @@ waypoints with the empty-waypoint search.
 
 ## 4. Re-run the LLM experiments (requires a key)
 
+The model wrapper (`llmastar/model/chatgpt_gemini.py`) works with any OpenAI-compatible endpoint
+and is configured only through environment variables. Never write a key in a file.
+
+| Variable | Meaning | Default |
+|----------|---------|---------|
+| `LLM_API_KEY` (or `OPENAI_API_KEY`) | API key | none (required) |
+| `LLM_BASE_URL` (or `OPENAI_BASE_URL`) | endpoint | the OpenAI endpoint |
+| `LLM_MODEL` | model name | `gpt-4o-mini` |
+
 ```bash
-export GEMINI_API_KEY=...        # Windows PowerShell: $env:GEMINI_API_KEY="..."
+# GPT-4o mini (OpenAI)
+export LLM_API_KEY=...            # Windows PowerShell: $env:LLM_API_KEY="..."
+python check_llm.py               # one test call; prints the model, the endpoint and the answer
 python table1_benchmark.py --outdir my_results --configs gpt:standard,gpt:cot,gpt:repe
 python table1_stats.py --dir my_results
 ```
 
+Gemini (used for our Table 1 runs): set only `GEMINI_API_KEY` instead. If no `LLM_API_KEY` /
+`OPENAI_API_KEY` is set, the code then uses the Gemini OpenAI-compatible endpoint and
+`gemini-3.5-flash-lite` by default (`LLM_BASE_URL` and `LLM_MODEL` can still override them).
+
 Settings used for our runs:
 
-- Model: `gemini-3.5-flash-lite`, called through Gemini's OpenAI-compatible endpoint
-  (`llmastar/model/chatgpt_gemini.py`), temperature 0.
+- Model: `gemini-3.5-flash-lite`, called through Gemini's OpenAI-compatible endpoint,
+  temperature 0.
 - Output-token budget per waypoint call: `--max-tokens` of `table1_benchmark.py`
   (default 8000; it overrides the value 1000 written in `llm_a_star.py`).
 - `table1_benchmark.py` is resumable: cases already present in the output CSVs are skipped,
   and it stops cleanly when the API quota is reached (run the same command again later).
   `--reverse` processes the environments from the last one to the first.
-- Without a key, the code stops with the message `GEMINI_API_KEY is not set`.
+- SSL verification is on. Only behind a proxy that intercepts HTTPS, set
+  `LLMASTAR_INSECURE_SSL=1`.
+- Without a key, the code stops with a message listing the variables to set.
 
 ## 5. Using the planners on a new map (input / output format)
 
