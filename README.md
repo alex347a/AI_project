@@ -2,7 +2,7 @@
 
 This code base is built on the official LLM-A* repository
 (Meng et al., 2024, https://github.com/SilinMeng0510/llm-astar, MIT license, see `LICENSE`).
-Modifications made for this project: a configurable OpenAI-compatible backend, used with Gemini and GPT-4o mini (`llmastar/model/chatgpt_gemini.py`),
+Modifications made for this project: a configurable OpenAI-compatible backend, usable with Gemini and GPT-4o mini (our Table 1 runs use Gemini) (`llmastar/model/chatgpt_gemini.py`),
 a resumable Table 1 benchmark (`table1_benchmark.py`), offline statistics (`table1_stats.py`,
 `stats_tools/`), and the saved results of our runs (`results_gemini_1000/`, `results_gemini/`).
 
