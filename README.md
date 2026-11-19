@@ -15,6 +15,11 @@ table1_benchmark.py       runs A* and LLM-A* on the dataset and writes one CSV p
 table1_stats.py           recomputes Table 1 + standard deviations / confidence intervals from the CSVs
 results_gemini_1000/      run A: per-case results of a full 1,000-case run (standard, cot, repe)
 results_gemini/           run B: second full run (1,000 cases per prompt), same model and settings
+table1_bi_benchmark.py    evaluates A*, Bi A*, and Optimal Bidirectional LLM-A* ablations
+compare_fair.py           apples-to-apples runtime, memory, and expansion comparison
+w_calculator.py           measures relative cost weight w of guide-BFS cells vs node expansions
+test_nollm.py             offline sanity check verifying optimality without API calls
+results_bi/               saved bidirectional benchmark results (1,000 cases) and summary CSV
 stats_tools/              analysis scripts used in the report (two-run analysis, no-waypoint ablation)
 ablation_out/, two_run_out/   output tables of these scripts (CSV)
 requirements.txt          Python dependencies
@@ -131,9 +136,65 @@ llm = LLMAStar(llm='gpt', prompt='standard').searching(query=query, filepath='ll
 
 ## 6. Proposed algorithm
 
-> TO COMPLETE BEFORE SUBMISSION: describe the proposed method, the file(s) that implement it,
-> the exact command to run it and the exact command to evaluate it against A* and LLM-A*.
-> It must be the method described in the report.
+Our proposed method is **Optimal Bidirectional LLM-A\*** (`BiLLMAStarFast`), which guarantees
+grid-optimal paths (`RL = 100.00%`) regardless of LLM waypoint quality while accelerating search
+from both start and goal frontiers.
+
+### How It Works
+
+1. **Bidirectional Frontier Search (`optimal_core.py`):** Runs simultaneous forward (start-to-goal)
+   and backward (goal-to-start) A* searches using an admissible octile heuristic and prunes
+   branches once `min_f_fwd + min_f_bwd >= best_path_cost`.
+2. **LLM Incumbent Upper Bound (`use_incumbent=True`):** Connects consecutive LLM waypoints via
+   bounded A* hops (`hop_cap_factor=20`) to obtain a valid initial feasible path cost `mu` early,
+   immediately pruning states with `f >= mu`.
+3. **LLM Corridor Tie-Breaking Guide (`use_guide=True`):** Builds a bounded BFS distance field
+   (`guide_radius=8`) around the LLM waypoint path and uses it strictly as a secondary tie-breaker
+   among equal-`f` nodes (`guide_first=True`), preserving admissibility and optimality.
+
+### Implementation Files
+
+- `llmastar/pather/llm_a_star/bi_llm_a.py` — `BiLLMAStarFast` planner class (drop-in compatible
+  with `LLMAStar.searching(query, filepath, show)`).
+- `llmastar/pather/llm_a_star/optimal_core.py` — flat-grid bidirectional solver, incumbent hop
+  builder, and BFS corridor guide.
+- `llmastar/pather/llm_a_star/bi_a_star.py` — bidirectional A* baseline (`BiAStar`).
+- `llmastar/pather/llm_a_star/fair_core.py` — unified flat-grid instrumentation used for fair
+  operation/work/storage benchmarking across all variants.
+
+### Run the Proposed Algorithm
+
+```bash
+# 1. Offline optimality test (no API key required)
+python test_nollm.py
+
+# 2. Run A*, Bi A*, LLM-A*, and Bi LLM-A* on a sample map (requires LLM_API_KEY / OPENAI_API_KEY or GEMINI_API_KEY)
+python main.py
+```
+
+Python API usage (same input/output contract as `AStar` and `LLMAStar`):
+
+```python
+from llmastar.pather.llm_a_star.bi_llm_a import BiLLMAStarFast
+
+planner = BiLLMAStarFast(llm="gpt", prompt="standard")
+result = planner.searching(query=query, filepath="bi_llm.png", show=False)
+# Returns {"operation", "storage", "length", "llm_output", "stats"}
+```
+
+### Evaluate Against A* and LLM-A*
+
+```bash
+# Rebuild the saved 1,000-case bidirectional comparison table WITHOUT an API key:
+python table1_bi_benchmark.py --outdir results_bi --baseline astar --table-only
+
+# Run live evaluation on the dataset (requires an API key; caches LLM plans in results_bi/llm_cache.json):
+python table1_bi_benchmark.py --outdir results_bi --configs gpt:standard --baseline astar
+
+# Measure guide-BFS relative cost weight w and run fair runtime/memory benchmarks:
+python w_calculator.py
+python compare_fair.py 20 --skip-orig
+```
 
 ## 7. Notes
 
