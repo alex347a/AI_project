@@ -1,7 +1,7 @@
-openai>=1.0.0
-httpx
-numpy
-matplotlib
-shapely
-inquirer~=3.2.4
-python-dotenv
+openai==3.51.0
+httpx==0.28.1
+numpy==2.4.6
+matplotlib==3.11.2
+shapely==2.2.0
+inquirer==3.2.5
+python-dotenv==1.2.4
