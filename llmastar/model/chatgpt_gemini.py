@@ -1,19 +1,46 @@
 import os
-import httpx
+
 from openai import OpenAI
+
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+
+
+def _resolve_config():
+    """Return (api_key, base_url, model) from environment variables.
+
+    Any OpenAI-compatible endpoint can be used:
+      LLM_API_KEY   (or OPENAI_API_KEY)  API key
+      LLM_BASE_URL  (or OPENAI_BASE_URL) endpoint; unset -> the default OpenAI endpoint
+      LLM_MODEL                          model name; default gpt-4o-mini
+    Fallback used for our Gemini experiments: with only GEMINI_API_KEY set, the Gemini
+    OpenAI-compatible endpoint and gemini-3.5-flash-lite are used by default.
+    """
+    key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if key:
+        return key, os.getenv("LLM_BASE_URL"), os.getenv("LLM_MODEL", "gpt-4o-mini")
+    key = os.getenv("GEMINI_API_KEY")
+    if key:
+        return (key, os.getenv("LLM_BASE_URL", GEMINI_BASE_URL),
+                os.getenv("LLM_MODEL", "gemini-3.5-flash-lite"))
+    raise RuntimeError(
+        "No API key found. Set LLM_API_KEY (or OPENAI_API_KEY), optionally LLM_BASE_URL and "
+        "LLM_MODEL (default model: gpt-4o-mini). For Gemini, set GEMINI_API_KEY instead. "
+        "(The Table 1 statistics can be recomputed without any key, see README.)"
+    )
+
 
 class ChatGPT:
     def __init__(self, method, sysprompt, example):
-        api_key = os.getenv("GEMINI_API_KEY")
-        
-        # Bypass local network SSL interception if present
-        http_client = httpx.Client(verify=False)
-        self.client = OpenAI(api_key=api_key,
-                     base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-                     http_client=http_client)
-        
-        # Active Gemini model ID
-        self.model_name = "gemini-3.5-flash-lite"
+        api_key, base_url, self.model_name = _resolve_config()
+        client_kwargs = {"api_key": api_key}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        # SSL verification stays ON by default; set LLMASTAR_INSECURE_SSL=1 only behind a
+        # proxy that intercepts HTTPS.
+        if os.getenv("LLMASTAR_INSECURE_SSL") == "1":
+            import httpx
+            client_kwargs["http_client"] = httpx.Client(verify=False)
+        self.client = OpenAI(**client_kwargs)
 
         self.id = 0
         self.chat_history = [

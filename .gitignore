@@ -130,3 +130,7 @@ config.json
 
 outcome/*
 main.py
+.env
+*.env
+*.png
+.venv-test/
