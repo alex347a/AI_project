@@ -5,7 +5,6 @@ and the SAME LLM plan per case, and every ratio divides by a baseline from the s
 
 Methods (per case):
   astar  plain A* on the Grid (= unidirectional with no LLM)
-  bi0    optimal bidirectional A*, no LLM
   big    bi0 + LLM guide only
   bii    bi0 + LLM incumbent bound only
   bif    full Bi LLM-A* (incumbent + guide)
@@ -40,8 +39,8 @@ from table1_benchmark import _last, call_with_retry, geo_mean, is_rate_limit, pa
 from llmastar.pather import LLMAStar
 from llmastar.pather.llm_a_star.fair_core import Grid, grid_astar, solve_counted_bi, solve_counted_uni
 
-METHODS = ["astar", "bi0", "big", "bii", "bif", "ug", "ui", "uf"]
-LABEL = {"astar": "A* (grid)", "bi0": "Bi A* (grid)", "big": "Bi + guide",
+METHODS = ["astar", "big", "bii", "bif", "ug", "ui", "uf"]
+LABEL = {"astar": "A* (grid)", "big": "Bi + guide",
          "bii": "Bi + incumbent", "bif": "Bi LLM-A* (full)",
          "ug": "Uni + guide", "ui": "Uni + incumbent", "uf": "Uni LLM-A* (full)"}
 FIELDS = (["env_id", "start", "goal", "llm_waypoints", "status", "error"]
@@ -96,7 +95,6 @@ def run_case(llm, prompt, env, start, goal, cache, cache_file, args):
     kw = dict(guide_radius=args.guide_radius, hop_cap_factor=args.hop_cap)
     results = {
         "astar": grid_astar(grid, s, g),
-        "bi0": solve_counted_bi(grid, s, g, (), use_incumbent=False, use_guide=False, **kw),
         "big": solve_counted_bi(grid, s, g, wps, use_incumbent=False, use_guide=True, **kw),
         "bii": solve_counted_bi(grid, s, g, wps, use_incumbent=True, use_guide=False, **kw),
         "bif": solve_counted_bi(grid, s, g, wps, use_incumbent=True, use_guide=True, **kw),
@@ -252,7 +250,6 @@ def build_table(args, configs):
     common = sorted(set.intersection(*[set(r) for r in data.values()]))
     n = len(common)
     base = args.baseline
-    other = "astar" if base == "bi0" else "bi0"
     print("\n" + "=" * 86)
     print(f"OPTIMAL LLM-A* TABLE (values in %, geometric means, baseline = {LABEL[base]} = 100)")
     print("Cases finished per config: " + ", ".join(f"{l}:{p}={len(r)}" for (l, p), r in data.items()))
@@ -265,9 +262,6 @@ def build_table(args, configs):
     head = ["Method", "Model", "Prompt", "OR(%)"] + (["WOR(%)"] if w is not None else []) + \
            ["SR(%)", "RL(%)", "VPR(%)", "wpts(%)"]
     table = [[LABEL[base], "-", "-", "100"] + (["100"] if w is not None else []) + ["100", "100", "100", "-"]]
-    first = [data[c][k] for c in data for k in common][:n] if n else []
-    if first:
-        table.append(table_row(LABEL[other], "-", "-", first, other, base, w))
     bad = 0
     for (llm, prompt), rows in data.items():
         rs = [rows[k] for k in common]
@@ -307,8 +301,8 @@ def parse_args():
     p.add_argument("--dataset", default="dataset/environment_50_30.json")
     p.add_argument("--outdir", default="results_bi")
     p.add_argument("--configs", default=tb.ALL_CONFIGS)
-    p.add_argument("--baseline", choices=["bi0", "astar"], default="astar",
-                   help="what the ratios divide by (bi0 = plain bidirectional, astar = plain A*)")
+    p.add_argument("--baseline", choices=["astar"], default="astar",
+                   help="what the ratios divide by (plain A* on the same grid)")
     p.add_argument("--batch", type=int, default=10)
     p.add_argument("--max-cases", type=int, default=None)
     p.add_argument("--retries", type=int, default=3)
